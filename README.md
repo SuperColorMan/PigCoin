@@ -1,13 +1,17 @@
 # Pig Coin 
 
-Eco is built on Java
+Eco is built primarily in Java, with a few other technologies.
 
 # What is the Pig Coin?
 
-This is a fire coin used to adjust the constant price exchange between pork and fiat money 
+Used for circulation in the trade of agricultural commodities generally.
+ 
+# Tokens address
 
-see:
+[Tokens address](https://etherscan.io/token/0x8fdf08ca6bbf66d704d16ef069769a221c1c7ce1)
 
-🐖 forever equal by 💰
+# Total circulation
 
+100,000,000 pig 
 
+ps : Never a rights issue
