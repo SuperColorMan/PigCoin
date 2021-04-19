@@ -8,7 +8,7 @@ Used for circulation in the trade of agricultural commodities generally.
  
 # Tokens address
 
-[Tokens address](https://etherscan.io/token/0x8fdf08ca6bbf66d704d16ef069769a221c1c7ce1)
+[Tokens address](https://bscscan.com/token/0x3b015e51badaa07ad002b837f09bdaaf897824f1#balances)
 
 # Total circulation
 
