@@ -1,0 +1,1227 @@
+import 'dart:convert';
+import 'dart:ui';
+
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flustars/flustars.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_icons/flutter_icons.dart';
+import 'package:xhd_app/model/user/UserInfoModel.dart';
+import 'package:xhd_app/view/anim/PageRouteAnimation.dart';
+import 'package:xhd_app/view/comm/cache/GlobalLocalCache.dart';
+import 'package:xhd_app/view/comm/enums/GlobalUserContentTypeEnum.dart';
+import 'package:xhd_app/view/comm/net/GlobalApiUrlTable.dart';
+import 'package:xhd_app/view/comm/route/GlobalRouteTable.dart';
+import 'package:xhd_app/view/comm/utils/GlobalColor.dart';
+import 'package:xhd_app/view/comm/utils/GlobalDateUtil.dart';
+import 'package:xhd_app/view/widget/comm/CommWidgetBuilder.dart';
+import 'package:xhd_app/view/widget/comm/UpPopupButton.dart';
+import 'package:xhd_app/view/widget/page/UserPageContentArea.dart';
+import 'package:xhd_app/view/widget/user/UserSexLabel.dart';
+
+import 'EditUserInfoPage.dart';
+
+/// -------------------------------
+/// Des: 用户主页
+/// -------------------------------
+class MyHomePage_2 extends StatefulWidget {
+  /// 默认页索引
+  int defaultPageIndex;
+
+  /// 当前页用户名
+  String userName;
+
+  /// 当前用户id
+  String userId;
+
+  MyHomePage_2({this.defaultPageIndex, this.userName, this.userId, Key key})
+      : super(key: key);
+
+  @override
+  _MyHomePage_2State createState() => _MyHomePage_2State(defaultPageIndex);
+}
+
+class _MyHomePage_2State extends State<MyHomePage_2>
+    with SingleTickerProviderStateMixin, TickerProviderStateMixin {
+  /// ----------- 默认页号 -----------
+  int _defaultPageIndex = 0;
+
+  /// ---------------------------------
+
+  _MyHomePage_2State(int defaultPageIndex) {
+    this._defaultPageIndex = defaultPageIndex;
+  }
+
+  /// ------------------ 局部组件初始化 start ------------------
+  /// 头部用户头像
+  GlobalKey<TitleUserHeadPicState> titleUserHeadPicState = GlobalKey();
+
+  /// 头部关注按钮
+  GlobalKey<TitleAttentionButtonState> titleAttentionButtonState = GlobalKey();
+
+  /// 头部返回按钮
+  GlobalKey<TitleBackButtonState> titleBackButtonState = GlobalKey();
+
+  /// 头部抽屉按钮
+  GlobalKey<TitleDrawerButtonState> titleDrawerButtonState = GlobalKey();
+
+  /// 页面key
+  GlobalKey<ScaffoldState> scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  /// ------------------ 局部组件初始化 end ------------------
+
+  /// ----------- 用户数据模型 -----------
+  UserInfoModel _userInfoModel;
+
+  /// ---------------------------------
+
+  /// ------------------ TarBar 相关配置参数 ------------------
+  /// tab标题列表
+  var tabTitle = [
+    Tab(text: '全部'),
+    Tab(text: '内容'),
+    Tab(text: '点赞'),
+    Tab(text: '评论'),
+    Tab(text: '收藏'),
+  ];
+
+  /// tab索引
+  List<String> tabClassify = [
+    "${GlobalUserContentTypeEnum.ALL.index}",
+    "${GlobalUserContentTypeEnum.CONTENT.index}",
+    "${GlobalUserContentTypeEnum.GOOD.index}",
+    "${GlobalUserContentTypeEnum.COMMENT.index}",
+    "${GlobalUserContentTypeEnum.COLLECT.index}",
+  ];
+
+  /// ------------------------------------------------------
+
+  ScrollController _scrollViewController;
+  TabController _tabController;
+
+  /// ------------------- 缩放控制 start -------------------
+  AnimationController animationController;
+  Animation<double> anim;
+  double extraPicHeight = 0;
+  BoxFit fitType;
+  double prev_dy;
+
+  updatePicHeight(changed) {
+    if (prev_dy == 0) {
+      //如果是手指第一次点下时，我们不希望图片大小就直接发生变化，所以进行一个判定。
+      prev_dy = changed;
+    }
+    if (extraPicHeight >= 45) {
+      //当我们加载到图片上的高度大于某个值的时候，改变图片的填充方式，让它由以宽度填充变为以高度填充，从而实现了图片视角上的放大。
+      fitType = BoxFit.fitHeight;
+    } else {
+      fitType = BoxFit.fitWidth;
+    }
+//控制最大放大高度
+    if (extraPicHeight < 100) {
+      extraPicHeight += changed - prev_dy; //新的一个y值减去前一次的y值然后累加，作为加载到图片上的高度。
+      setState(() {
+        //更新数据
+        prev_dy = changed;
+        extraPicHeight = extraPicHeight;
+        fitType = fitType;
+      });
+    }
+  }
+
+  runAnimate() {
+    //设置动画让extraPicHeight的值从当前的值渐渐回到 0
+    setState(() {
+      anim = Tween(begin: extraPicHeight, end: 0.0).animate(animationController)
+        ..addListener(() {
+          if (extraPicHeight >= 45) {
+            //同样改变图片填充类型
+            fitType = BoxFit.fitHeight;
+          } else {
+            fitType = BoxFit.fitWidth;
+          }
+          setState(() {
+            extraPicHeight = anim.value;
+            fitType = fitType;
+          });
+        });
+      prev_dy = 0; //同样归零
+    });
+  }
+
+  /// ------------------- 缩放控制 end -------------------
+
+  /// 拓展区域高度
+  double _expandedHeight;
+
+  /// 拓展区域高度TabBar吸顶圆角高度
+  double _expandedTabBarHeight;
+
+  /// 用户id
+  String _userId;
+
+  /// 用户个性id
+  String _userUId;
+
+  /// 用户名
+  String _userName;
+
+  /// 性别
+  String _userSex;
+
+  /// 简介
+  String _userIntro;
+
+  /// 生日
+  String _userBirthday;
+
+  @override
+  void initState() {
+    super.initState();
+
+    /// ----------------- 初始化用户信息 start -----------------
+    if (widget.userName != null && widget.userName.isNotEmpty) {
+      /// 根据用户名查询
+    }
+    if (widget.userId != null && widget.userId.isNotEmpty) {
+      /// 根据用户id查询
+    }
+
+    /// ----------------- 初始化用户信息 end -----------------
+
+    /// ----------------- 顶部拓展区高度初始化 start -----------------
+    /// 拓展区域高度
+    _expandedHeight = ScreenUtil.getInstance().screenHeight * 0.389;
+
+    /// 拓展区域高度TabBar吸顶圆角高度
+    _expandedTabBarHeight = 50;
+
+    /// ----------------- 顶部拓展区高度初始化 end -----------------
+
+    _scrollViewController = ScrollController(initialScrollOffset: 0.0);
+    _tabController = TabController(
+        initialIndex: _defaultPageIndex, vsync: this, length: tabTitle.length);
+
+    ///滚动事件初始化
+    _scrollViewController.addListener(() {
+      /// 滚动长度监听
+      if (_scrollViewController.offset >= _expandedHeight - 50) {
+        titleUserHeadPicState.currentState.setOpacity(1.0);
+        titleAttentionButtonState.currentState.setOpacity(1.0);
+        titleBackButtonState.currentState
+            .setBtnColor(Color(GlobalColor.APP_THEME_COLOR));
+        titleDrawerButtonState.currentState
+            .setBtnColor(Color(GlobalColor.APP_THEME_COLOR));
+      } else if (_scrollViewController.offset <= _expandedHeight - 50) {
+        titleUserHeadPicState.currentState.setOpacity(0.0);
+        titleAttentionButtonState.currentState.setOpacity(0.0);
+        titleBackButtonState.currentState.setBtnColor(Colors.white);
+        titleDrawerButtonState.currentState.setBtnColor(Colors.white);
+      }
+    });
+    animationController =
+        AnimationController(vsync: this, duration: Duration(milliseconds: 300));
+
+    /// ------------- 用户数据初始化 start  -------------
+    /// 登录用户信息
+    GlobalLocalCache.getLoginUserInfo().then((loginUserInfo) {
+      Map loginUserInfoMap = jsonDecode(loginUserInfo as String) as Map;
+      print("登录信息-----${loginUserInfoMap.toString()}");
+
+      /// 互动信息
+      Map tuInteractionInfo = loginUserInfoMap['tuInteractionInfo'];
+
+      /// 初始化用户信息
+      setState(() {
+        /// 用户性别
+        String _sex = "外星人";
+        if (loginUserInfoMap['sex'] == 0) {
+          _sex = "女";
+        } else if (loginUserInfoMap['sex'] == 1) {
+          _sex = "男";
+        } else if (loginUserInfoMap['sex'] == 2) {
+          _sex = "外星人";
+        }
+
+        /// 用户id
+        _userId = loginUserInfoMap['id'].toString();
+
+        /// 用户个性id
+        _userUId = loginUserInfoMap['uid'].toString();
+
+        /// 用户名
+        _userName = loginUserInfoMap['name'].toString();
+
+        /// 性别
+        _userSex = _sex;
+
+        /// 简介
+        _userIntro = loginUserInfoMap['intro'].toString();
+
+        /// 生日
+        _userBirthday = loginUserInfoMap['birthday'].toString();
+
+        /// 用户地理信息
+        Map tLocalInfo = loginUserInfoMap['tLocalInfo'];
+        String local = ObjectUtil.isNotEmpty(tLocalInfo)
+            ? '${tLocalInfo['country']} ${tLocalInfo['provincial']} ${tLocalInfo['city']} ${tLocalInfo['district']}'
+            : '';
+
+        _userInfoModel = new UserInfoModel(
+          context,
+          id: _userId,
+          uid: _userUId,
+          userName: _userName,
+          sex: _userSex,
+          intro: _userIntro,
+          birthday: _userBirthday,
+          local: local,
+          userHeadImg:
+              '${GlobalApiUrlTable.GET_USER_HEAD_PIC}?id=${_userId}&${GlobalDateUtil.getCurrentTimestamp()}',
+          userBgImg:
+              '${GlobalApiUrlTable.GET_USER_BG_PIC}?id=${_userId}&${GlobalDateUtil.getCurrentTimestamp()}',
+          attentionConut: tuInteractionInfo['attentionCount'].toString(),
+          fansCount: tuInteractionInfo['fansCount'].toString(),
+          goodCount: tuInteractionInfo['byGoodCount'].toString(),
+        );
+      });
+    });
+
+    /// ------------- 用户数据初始化 end  -------------
+  }
+
+  /// -------------- 构建右侧抽屉 start --------------
+  Widget _builRightdDrawer() {
+    return Container(
+      padding: EdgeInsets.only(
+        top: 80,
+        bottom: 80,
+        left: 25,
+        right: 25,
+      ),
+      width: ScreenUtil.getInstance().screenWidth * 0.7,
+      color: Colors.white,
+      child: ListView(
+        children: <Widget>[
+          /// 编辑资料
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 跳转到编辑个人资料页
+              GlobalRouteTable.goEditUserInfoPage(context);
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.edit_outlined,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "编辑资料",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          /// 设置
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 前往用户设置页
+              GlobalRouteTable.goUserSettingPage(context);
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.settings_outlined,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "设置",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          /// 分隔线
+          Container(
+            margin: EdgeInsets.only(top: 20, bottom: 20),
+            child: Container(
+              width: double.infinity,
+              height: 1,
+              color: Color(GlobalColor.MAX_SHALLOW_GRAY),
+            ),
+          ),
+
+          /// 购物车
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 前往用户购物车页
+              GlobalRouteTable.goShoppingCartPage(context, () {});
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.shopping_cart_outlined,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "购物车",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          /// 订单
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 前往用户订单页
+              GlobalRouteTable.goUserOrderFormPage(context, () {});
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.assignment_outlined,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "订单",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          /// 我的商品
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 前往用户发布的商品页
+              GlobalRouteTable.goUserCommodityPage(context);
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.shopping_bag_outlined,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "我的商品",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          /// 经营分析
+          GestureDetector(
+            onTap: () {
+              /// 关闭侧方抽屉
+              scaffoldKey.currentState.openDrawer();
+
+              /// 前往用户经营分析页
+              GlobalRouteTable.goUserBusinessAnalysePage(context);
+            },
+            child: Container(
+              margin: EdgeInsets.only(
+                top: 10,
+                bottom: 10,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.bar_chart,
+                    size: 25,
+                  ),
+                  SizedBox(
+                    width: 20,
+                  ),
+                  Text(
+                    "经营分析",
+                    style: TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// -------------- 构建右侧抽屉 end --------------
+
+  @override
+  void dispose() {
+    super.dispose();
+    _scrollViewController.dispose();
+    _tabController.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    /// 页面主体
+    Widget _pageMain = Container(
+      //填充
+      constraints: BoxConstraints.expand(),
+      //层叠布局
+      child: Stack(
+        children: [
+          Theme(
+              data: ThemeData(primaryColor: Colors.white),
+              child: Scaffold(
+                key: scaffoldKey,
+                endDrawer: _builRightdDrawer(),
+                body: Listener(
+                  onPointerMove: (result) {
+                    //手指的移动时
+//              updatePicHeight(result.position.dy); //自定义方法，图片的放大由它完成。
+                  },
+                  onPointerUp: (_) {
+                    //当手指抬起离开屏幕时
+//              runAnimate(); //动画执行
+//              animationController.forward(from: 0); //重置动画
+                  },
+                  child: NestedScrollView(
+                      controller: _scrollViewController,
+                      headerSliverBuilder:
+                          (BuildContext context, bool innerBoxIsScrolled) {
+                        return <Widget>[
+                          SliverAppBar(
+                            //滑动到最上面，再滑动是否隐藏导航栏的文字和标题等的具体内容，为true是隐藏，为false是不隐藏
+                            floating: false,
+                            //是否固定导航栏，为true是固定，为false是不固定，往上滑，导航栏可以隐藏
+                            pinned: true,
+                            //只跟floating相对应，如果为true，floating必须为true，也就是向下滑动一点儿，整个大背景就会动画显示全部，网上滑动整个导航栏的内容就会消失
+                            snap: false,
+                            title: TitleUserHeadPic(
+                                titleUserHeadPicState, _userInfoModel),
+
+                            /// 返回按钮
+                            leading: GestureDetector(
+                              onTap: () {
+                                Navigator.pop(context);
+                              },
+                              child: Container(
+                                padding: EdgeInsets.only(left: 20),
+                                alignment: Alignment.centerLeft,
+                                child: TitleBackButton(titleBackButtonState),
+                              ),
+                            ),
+
+                            /// 关注按钮
+                            actions: [
+                              Container(
+                                padding: EdgeInsets.only(right: 20),
+                                child: Row(
+                                  children: [
+                                    /// 关注按钮
+                                    TitleAttentionButton(
+                                        titleAttentionButtonState),
+
+                                    /// 抽屉按钮
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        scaffoldKey.currentState
+                                            .openEndDrawer();
+                                      },
+                                      child: TitleDrawerButton(
+                                          titleDrawerButtonState),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            expandedHeight: _expandedHeight,
+                            flexibleSpace: FlexibleSpaceBar(
+                                centerTitle: true,
+                                collapseMode: CollapseMode.pin,
+                                background: Stack(
+                                  children: [
+                                    /// 用户背景壁纸
+                                    CachedNetworkImage(
+                                      height: _expandedHeight,
+                                      width: double.infinity,
+                                      fit: BoxFit.fill,
+                                      imageUrl:
+                                          '${GlobalApiUrlTable.GET_USER_BG_PIC}?id=${_userInfoModel.id}&${GlobalDateUtil.getCurrentTimestamp()}',
+                                    ),
+
+                                    /// 毛玻璃蒙层
+                                    ClipRect(
+                                        child: Center(
+                                      child: BackdropFilter(
+                                        //背景滤镜器
+                                        filter: ImageFilter.blur(
+                                            sigmaX: 1.0, sigmaY: 2.0),
+                                        //图片模糊过滤，横向竖向都设置5.0
+                                        child: Opacity(
+                                          //透明控件
+                                          opacity: 0.5,
+                                          child: Container(
+                                            // 容器组件
+                                            width: 500.0,
+                                            height: 500.0,
+                                            decoration: BoxDecoration(
+                                                color: Colors
+                                                    .black), //盒子装饰器，进行装饰，设置颜色为灰色
+                                          ),
+                                        ),
+                                      ),
+                                    )),
+
+                                    /// 用户信息区域
+                                    Container(
+                                      /// 头部整个背景颜色
+                                      height: double.infinity,
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: <Widget>[
+                                          /// 用户信息区域
+                                          _buildInfoArea(),
+
+                                          /// 吸顶框圆角配置,思路:圆角背景覆盖最底层tabbar
+                                          _buildTabBarBg()
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                )),
+                            bottom: TabBar(
+                                indicatorSize: TabBarIndicatorSize.label,
+                                indicatorColor:
+                                    Color(GlobalColor.APP_THEME_COLOR),
+                                unselectedLabelColor: Colors.black,
+                                labelColor: Color(GlobalColor.APP_THEME_COLOR),
+                                controller: _tabController,
+                                tabs: tabTitle),
+                          )
+                        ];
+                      },
+                      body: TabBarView(
+                        controller: _tabController,
+                        children: tabClassify
+                            .map((classify) => UserPageContentArea(
+                                  _userInfoModel.id.toString(),
+                                  classify,
+                                ))
+                            .toList(),
+                      )),
+                ),
+              )),
+          Positioned(
+            right: 30,
+            bottom: 80,
+
+            /// 悬浮按钮
+            child: UpPopupButton(
+              startColor: Color(GlobalColor.APP_THEME_COLOR),
+              endColor: Colors.white,
+
+              /// 颜色组
+              colorList: [
+                Color(GlobalColor.APP_THEME_COLOR),
+                Colors.orange,
+              ],
+
+              /// 菜单图标组
+              iconList: [
+                Icon(FontAwesome.send_o),
+                Icon(FontAwesome.shopping_bag),
+              ],
+
+              /// 点击事件回调
+              clickCallback: (int index) {
+                if (index == 0) {
+                  /// 前往内容发布页面
+                  GlobalRouteTable.goSendContentPage(context);
+                } else if (index == 1) {
+                  /// 前往商品发布页面
+                  GlobalRouteTable.goCommodityAddPage(context);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    return _pageMain;
+  }
+
+  /// 构建信息区域
+  Widget _buildInfoArea() {
+    return Container(
+      child: Container(
+        width: double.infinity,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            ///用户信息
+            Container(
+              color: Colors.transparent,
+              padding: EdgeInsets.only(left: 0, top: 10, right: 0, bottom: 0),
+              child: Row(
+                children: [
+                  /// 用户头像
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: new BoxDecoration(
+                      //设置四周圆角 角度 这里的角度应该为 父Container height 的一半
+                      borderRadius: BorderRadius.all(Radius.circular(558.0)),
+                      //设置四周边框
+                      border: new Border.all(width: 2, color: Colors.white),
+                    ),
+                    margin: EdgeInsets.only(left: 15),
+                    child: ClipOval(
+                      child: CachedNetworkImage(
+                        imageUrl: _userInfoModel.userHeadImg,
+                        fit: BoxFit.cover,
+                        width: 70,
+                        height: 70,
+                        // color: Colors.black
+                      ),
+                    ),
+                  ),
+
+                  /// 用户信息区域
+                  Expanded(
+                    flex: 4,
+                    child: Container(
+                      margin: EdgeInsets.only(left: 15),
+                      child: Column(
+                        children: [
+                          /// 用户名
+                          Container(
+                              child: Row(
+                            children: [
+                              Container(
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      ScreenUtil.getInstance().screenWidth *
+                                          0.6,
+                                ),
+                                child: Text(
+                                  '${_userInfoModel.userName}',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w500),
+                                  textAlign: TextAlign.left,
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ],
+                          )),
+
+                          /// 用户标签区域
+                          Container(
+                            width: double.infinity,
+                            margin: EdgeInsets.only(top: 10, bottom: 5),
+                            child: Wrap(
+                              alignment: WrapAlignment.start,
+                              //布局方向
+                              direction: Axis.horizontal,
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                UserSexLabel(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            ///用户简介
+            Container(
+              margin: EdgeInsets.only(top: 15, bottom: 15),
+              child: FractionallySizedBox(
+                widthFactor: 0.9,
+                child: Text("${_userInfoModel.intro}",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ),
+
+            /// 用户信息区域
+            Container(
+              child: Container(
+                margin: EdgeInsets.only(left: 1),
+                padding: EdgeInsets.only(bottom: 18),
+                child: Row(
+                  children: [
+                    /// 用户互动信息
+                    Expanded(
+                        flex: 4,
+                        child: Row(
+                          children: [
+                            Expanded(
+                                child: Column(
+                              children: [
+                                Text(
+                                  '${_userInfoModel.goodCount}',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                Text(
+                                  "获赞",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            )),
+                            Expanded(
+                                child: Column(
+                              children: [
+                                Text(
+                                  '${_userInfoModel.attentionConut}',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                Text(
+                                  "关注",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            )),
+                            Expanded(
+                                child: Column(
+                              children: [
+                                Text(
+                                  "${_userInfoModel.fansCount}",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                Text(
+                                  "粉丝",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            )),
+                            Expanded(
+                                child: Column(
+                              children: [
+                                Text(
+                                  "${_userInfoModel.collectCount}",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                Text(
+                                  "收藏",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            )),
+                          ],
+                        )),
+
+                    /// 编辑按钮
+                    Expanded(
+                        flex: 4,
+                        child: Stack(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                /// 用户个人资料编辑
+                                GestureDetector(
+                                  onTap: () {
+                                    /// 跳转到编辑个人资料页页
+                                    Navigator.push(
+                                        context,
+                                        CustomRouteJianBian(
+                                            EditUserInfoPage()));
+                                  },
+                                  child: Container(
+                                    margin: EdgeInsets.only(right: 10),
+                                    alignment: Alignment.centerRight,
+                                    height: 35,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: Radius.circular(100),
+                                        topRight: Radius.circular(100),
+                                        bottomLeft: Radius.circular(100),
+                                        bottomRight: Radius.circular(100),
+                                      ),
+                                      child: Container(
+                                        child: Stack(
+                                          children: [
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  padding: EdgeInsets.only(
+                                                      left: 10,
+                                                      right: 10,
+                                                      top: 3,
+                                                      bottom: 3),
+                                                  //边框设置
+                                                  decoration: new BoxDecoration(
+                                                    color: Color(0x806F6F6F),
+                                                    //设置四周圆角 角度 这里的角度应该为 父Container height 的一半
+                                                    borderRadius:
+                                                        BorderRadius.all(
+                                                            Radius.circular(
+                                                                25.0)),
+                                                    //设置四周边框
+                                                    border: new Border.all(
+                                                        width: 1,
+                                                        color: Colors.white),
+                                                  ),
+                                                  child: Text("编辑个人资料",
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.white,
+                                                      ),
+                                                      textAlign: TextAlign.left,
+                                                      softWrap: true,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      maxLines: 1),
+                                                )
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                /// 用户个人设置
+                                GestureDetector(
+                                  onTap: () {
+                                    GlobalRouteTable.goUserSettingPage(context);
+                                  },
+                                  child: Container(
+                                    margin: EdgeInsets.only(right: 20),
+                                    alignment: Alignment.centerRight,
+                                    height: 35,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: Radius.circular(100),
+                                        topRight: Radius.circular(100),
+                                        bottomLeft: Radius.circular(100),
+                                        bottomRight: Radius.circular(100),
+                                      ),
+                                      child: Container(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                                padding: EdgeInsets.only(
+                                                    left: 10,
+                                                    right: 10,
+                                                    top: 3,
+                                                    bottom: 3),
+                                                //边框设置
+                                                decoration: new BoxDecoration(
+                                                  color: Color(0x806F6F6F),
+                                                  //设置四周圆角 角度 这里的角度应该为 父Container height 的一半
+                                                  borderRadius:
+                                                      BorderRadius.all(
+                                                          Radius.circular(
+                                                              25.0)),
+                                                  //设置四周边框
+                                                  border: new Border.all(
+                                                      width: 1,
+                                                      color: Colors.white),
+                                                ),
+                                                child: Icon(
+                                                  Icons.settings_outlined,
+                                                  color: Colors.white,
+                                                  size: 16,
+                                                ))
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        )),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 吸顶框圆角配置
+  Widget _buildTabBarBg() {
+    return Container(
+      //TabBar圆角背景颜色
+      height: _expandedTabBarHeight,
+      child: ClipRRect(
+          borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(15), topRight: Radius.circular(15)),
+          child: Container(color: Colors.white)),
+    );
+  }
+}
+
+/// ---------------------- 页面局部组件定义区域 start ----------------------
+/// ---------- 页面标题区域用户头像 start ----------
+class TitleUserHeadPic extends StatefulWidget {
+  UserInfoModel userInfoModel;
+
+  TitleUserHeadPic(Key key, this.userInfoModel) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return TitleUserHeadPicState(userInfoModel);
+  }
+}
+
+class TitleUserHeadPicState extends State<TitleUserHeadPic> {
+  UserInfoModel userInfoModel;
+
+  TitleUserHeadPicState(this.userInfoModel);
+
+  /// 头部用户信息隐藏度
+  double opacityLevel = 0.0;
+
+  /// 头部用户信息隐藏速率,单位:ms
+  int opacityMS = 200;
+
+  @override
+  Widget build(BuildContext context) {
+    print("用户信息----${userInfoModel.toString()}");
+    return AnimatedOpacity(
+        // 使用一个AnimatedOpacity Widget
+        opacity: opacityLevel,
+        duration: new Duration(milliseconds: opacityMS),
+
+        /// 过渡时间：500毫秒
+        child: new Container(
+          child: Container(
+            child:
+
+                /// 用户头像
+                ClipRRect(
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(518),
+                topRight: Radius.circular(518),
+                bottomLeft: Radius.circular(518),
+                bottomRight: Radius.circular(518),
+              ),
+              child: CachedNetworkImage(
+                imageUrl: '${userInfoModel.userHeadImg}',
+                fit: BoxFit.fill,
+                width: 35,
+                height: 35,
+                // color: Colors.black
+              ),
+            ),
+          ),
+        ));
+  }
+
+  void setOpacity(double opacity) {
+    setState(() {
+      opacityLevel = opacity;
+    });
+  }
+}
+
+/// ---------- 页面标题区域用户头像 end ----------
+
+/// ---------- 页面标题区域关注按钮 start ----------
+class TitleAttentionButton extends StatefulWidget {
+  TitleAttentionButton(Key key) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return TitleAttentionButtonState();
+  }
+}
+
+class TitleAttentionButtonState extends State<TitleAttentionButton> {
+  /// 头部用户信息隐藏度
+  double opacityLevel = 0.0;
+
+  /// 头部用户信息隐藏速率,单位:ms
+  int opacityMS = 200;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      // 使用一个AnimatedOpacity Widget
+      opacity: opacityLevel,
+      duration: new Duration(milliseconds: opacityMS),
+      //过渡时间：500毫秒
+      child: Container(
+        width: 80,
+        padding: EdgeInsets.only(top: 10, bottom: 10, right: 10),
+        child: CommWidgetBuilder.gradientButton("关注", fontSize: 14),
+      ),
+    );
+  }
+
+  void setOpacity(double opacity) {
+    setState(() {
+      opacityLevel = opacity;
+    });
+  }
+}
+
+/// ---------- 页面标题区域关注 end ----------
+
+/// ---------- 页面标题区域返回按钮 start ----------
+class TitleBackButton extends StatefulWidget {
+  TitleBackButton(Key key) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return TitleBackButtonState();
+  }
+}
+
+class TitleBackButtonState extends State<TitleBackButton> {
+  /// 颜色值
+  Color color = Colors.white;
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.arrow_back_ios,
+      color: color,
+      size: 30,
+    );
+  }
+
+  void setBtnColor(Color c) {
+    setState(() {
+      color = c;
+    });
+  }
+}
+
+/// ---------- 页面标题区域返回按钮 end ----------
+
+/// ---------- 页面标题区域抽屉按钮 start ----------
+class TitleDrawerButton extends StatefulWidget {
+  TitleDrawerButton(Key key) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return TitleDrawerButtonState();
+  }
+}
+
+class TitleDrawerButtonState extends State<TitleDrawerButton> {
+  /// 颜色值
+  Color color = Colors.white;
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.list,
+      color: color,
+      size: 35,
+    );
+  }
+
+  void openDrawer(Function callBack) {
+    setState(() {
+      callBack();
+    });
+  }
+
+  void setBtnColor(Color c) {
+    setState(() {
+      color = c;
+    });
+  }
+}
+
+/// ---------- 页面标题区域抽屉按钮 end ----------
+
+/// ---------------------- 页面局部组件定义区域 end ----------------------
